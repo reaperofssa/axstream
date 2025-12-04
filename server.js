@@ -10,7 +10,7 @@ const readdir = promisify(fs.readdir);
 
 // Configuration
 const BOT_TOKEN = '8334704739:AAFJztoXYELAKvXnhV6IydFkrGFAy8PqI-4';
-const PORT = 3000;
+const PORT = 7860;
 const HLS_DIR = path.join(__dirname, 'hls');
 const MEDIA_DIR = path.join(__dirname, 'media');
 
