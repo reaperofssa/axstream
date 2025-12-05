@@ -739,7 +739,7 @@ app.get('/:groupId', (req, res) => {
   <script>
     const video = document.getElementById('video');
     const groupId = '${groupId}';
-    const streamUrl = \`/hls/\${groupId}/stream.m3u8\`;
+    const streamUrl = '/hls/${groupId}/stream.m3u8';
     
     let hls = null;
     let retryCount = 0;
