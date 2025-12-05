@@ -864,10 +864,10 @@ app.get('/:groupId', (req, res) => {
         if (data.queue && data.queue.length > 0) {
           const queueHtml = data.queue.map((item, idx) => {
             const isCurrent = idx === data.currentIndex;
-            return `<div class="queue-item ${isCurrent ? 'current' : ''}">
-              <span class="queue-number">${idx + 1}.</span>
-              <span class="queue-name">${item.name}</span>
-            </div>`;
+            return '<div class="queue-item ' + (isCurrent ? 'current' : '') + '">' +
+       '<span class="queue-number">' + (idx + 1) + '.</span>' +
+       '<span class="queue-name">' + item.name + '</span>' +
+       '</div>';
           }).join('');
           document.getElementById('queue-items').innerHTML = queueHtml;
         } else {
