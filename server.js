@@ -15,7 +15,7 @@ const BOT_TOKEN = process.env.BOT_TOKEN;
 const PORT = process.env.PORT || 3000;
 const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
 const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE) || 500 * 1024 * 1024;
-const AD_VIDEO_URL = process.env.AD_VIDEO_URL || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
+const AD_VIDEO_PATH = process.env.AD_VIDEO_PATH || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
 
 const HLS_DIR = path.join(__dirname, 'hls');
 const MEDIA_DIR = path.join(__dirname, 'media');
@@ -37,31 +37,15 @@ async function initDirectories() {
   await mkdir(ADS_DIR, { recursive: true });
 }
 
-async function downloadAdVideo() {
-  const adPath = path.join(ADS_DIR, 'ad.mp4');
-  if (fs.existsSync(adPath)) {
-    console.log('Ad video already exists');
-    return adPath;
+async function getAdVideo() {
+  const adPath = path.join(__dirname, 'ads', 'ad.mp4'); // hardcoded location
+  if (!fs.existsSync(adPath)) {
+    throw new Error(`Ad video not found at ${adPath}. Please place it manually.`);
   }
-
-  console.log('Downloading ad video...');
-  const https = require('https');
-  const fileStream = fs.createWriteStream(adPath);
-  
-  return new Promise((resolve, reject) => {
-    https.get(AD_VIDEO_URL, (response) => {
-      response.pipe(fileStream);
-      fileStream.on('finish', () => {
-        fileStream.close();
-        console.log('Ad video downloaded');
-        resolve(adPath);
-      });
-    }).on('error', (err) => {
-      fs.unlink(adPath, () => {});
-      reject(err);
-    });
-  });
+  console.log('Using local ad video:', adPath);
+  return adPath;
 }
+
 
 async function cleanupOldFiles(dir, maxAge = 3600000) {
   try {
@@ -130,15 +114,15 @@ class StreamState {
   }
 
   async init() {
-    this.adPath = await downloadAdVideo();
-    const normalizedAdPath = path.join(TEMP_DIR, `${this.groupId}_ad.mp4`);
-    
-    if (!fs.existsSync(normalizedAdPath)) {
-      await normalizeMedia(this.adPath, normalizedAdPath);
-    }
-    
-    this.adPath = normalizedAdPath;
+  this.adPath = await getAdVideo(); // uses local ad.mp4
+  const normalizedAdPath = path.join(TEMP_DIR, `${this.groupId}_ad.mp4`);
+  
+  if (!fs.existsSync(normalizedAdPath)) {
+    await normalizeMedia(this.adPath, normalizedAdPath);
   }
+  
+  this.adPath = normalizedAdPath;
+}
 
   async addToQueue(filePath, metadata) {
     this.queue.push({ filePath, metadata });
