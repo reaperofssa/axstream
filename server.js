@@ -38,7 +38,7 @@ async function initDirectories() {
 }
 
 async function getAdVideo() {
-  const adPath = path.join(__dirname, 'ads', 'ad.mp4'); // hardcoded location
+  const adPath = path.join(__dirname, 'ad', 'ad.mp4'); // hardcoded location
   if (!fs.existsSync(adPath)) {
     throw new Error(`Ad video not found at ${adPath}. Please place it manually.`);
   }
