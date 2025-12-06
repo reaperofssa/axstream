@@ -218,12 +218,17 @@ async function playAd(channelId) {
   const state = channelStates[channelId];
   const channelOutput = getChannelOutput(channelId);
 
+  // FIXED: Don't start ad if movies are in queue
+  if (channels[channelId].queue && channels[channelId].queue.length > 0) {
+    console.log(`📺 [${channelId}] Queue has movies, not starting ad`);
+    return;
+  }
+
   if (state.isPlaying || state.playingAd) return;
 
   // Check if ad file exists
   if (!fs.existsSync(adVideoPath)) {
     console.error(`❌ [${channelId}] Ad file not found at ${adVideoPath}`);
-    // Wait and retry
     setTimeout(() => playAd(channelId), 5000);
     return;
   }
@@ -247,16 +252,18 @@ async function playAd(channelId) {
       state.isPlaying = false;
       console.log(`✅ [${channelId}] Ad loop exited (${exitCode})`);
       
-      // FIXED: Check if queue has items before restarting ad
+      // Check if queue has items before restarting ad
       const hasMovies = channels[channelId].queue && channels[channelId].queue.length > 0;
       
       if (hasMovies) {
         console.log(`📺 [${channelId}] Queue has movies, not restarting ad`);
         state.playingAd = false;
+        // Trigger movie playback
+        setTimeout(() => playNextMovie(channelId), 1000);
         return;
       }
       
-      // Auto-restart ad only if queue is still empty and exit wasn't forced
+      // Auto-restart ad only if queue is still empty
       if (!hasMovies && exitCode !== -1) {
         setTimeout(() => playAd(channelId), 1000);
       } else if (exitCode === -1) {
@@ -459,11 +466,20 @@ async function initializeChannel(channelId) {
     console.log(`📺 [${channelId}] Queue has ${channelConfig.queue.length} movies, preloading first movie`);
     const preloaded = await preloadNextMovie(channelId);
     
-    // Wait for preload with promise instead of setTimeout
-    if (preloaded && channelStates[channelId].preloadReady) {
-      playNextMovie(channelId);
+    // FIXED: Always try to play movie after preload
+    if (preloaded) {
+      // Wait a bit for segments to be ready
+      setTimeout(() => {
+        if (channelStates[channelId].preloadReady) {
+          playNextMovie(channelId);
+        } else {
+          console.log(`📺 [${channelId}] Preload not ready yet, waiting...`);
+          // Retry after delay
+          setTimeout(() => playNextMovie(channelId), 3000);
+        }
+      }, 2000);
     } else {
-      console.log(`📺 [${channelId}] Preload not ready, starting ad loop`);
+      console.log(`📺 [${channelId}] Preload failed, starting ad loop`);
       playAd(channelId);
     }
   } else {
@@ -816,39 +832,52 @@ bot.onText(/\/play (.+)/, async (msg, match) => {
     const isFirstMovie = channels[channelId].queue.length === 1;
 
     // If this is the first movie and ad is playing, switch to it
-    if (isFirstMovie && state && state.playingAd) {
-      bot.editMessageText(
-        `⏳ "${movieName}" downloaded! Preparing to stream...`,
-        { chat_id: chatId, message_id: statusMsg.message_id }
-      );
-      
-      // FIXED: Ensure movie is fully preloaded before attempting to play
-      state.preloadReady = false;
-      const preloaded = await preloadNextMovie(channelId);
-      
-      // Wait a bit longer to ensure segments are ready
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      if (preloaded && state.preloadReady) {
+    // If this is the first movie and ad is playing, switch to it
+if (isFirstMovie && state && state.playingAd) {
+  bot.editMessageText(
+    `⏳ "${movieName}" downloaded! Preparing to stream...`,
+    { chat_id: chatId, message_id: statusMsg.message_id }
+  );
+  
+  // CRITICAL: Kill the ad process first before preloading
+  if (state.currentProcess) {
+    console.log(`🛑 [${channelId}] Stopping ad to start movie`);
+    state.currentProcess.kill('SIGKILL');
+    state.currentProcess = null;
+    state.playingAd = false;
+    state.isPlaying = false;
+  }
+  
+  // Wait a moment for the process to fully terminate
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  
+  // FIXED: Ensure movie is fully preloaded before attempting to play
+  state.preloadReady = false;
+  const preloaded = await preloadNextMovie(channelId);
+  
+  // Wait a bit longer to ensure segments are ready
+  await new Promise(resolve => setTimeout(resolve, 3000));
+  
+  if (preloaded && state.preloadReady) {
+    playNextMovie(channelId);
+    bot.sendMessage(chatId, 
+      `🎬 Now playing "${movieName}"!\n\n` +
+      `Format: ${fileExtension.toUpperCase()}\n` +
+      `Size: ${(stats.size / (1024 * 1024)).toFixed(1)}MB\n\n` +
+      `Watch: http://your-server:${PORT}/watch/${channelId}`
+    );
+  } else {
+    bot.sendMessage(chatId, 
+      `⚠️ "${movieName}" added to queue. Stream will start shortly.`
+    );
+    // Force retry after a delay
+    setTimeout(() => {
+      if (!state.isPlaying && channels[channelId].queue.length > 0) {
         playNextMovie(channelId);
-        bot.sendMessage(chatId, 
-          `🎬 Now playing "${movieName}"!\n\n` +
-          `Format: ${fileExtension.toUpperCase()}\n` +
-          `Size: ${(stats.size / (1024 * 1024)).toFixed(1)}MB\n\n` +
-          `Watch: http://your-server:${PORT}/watch/${channelId}`
-        );
-      } else {
-        bot.sendMessage(chatId, 
-          `⚠️ "${movieName}" added to queue. Stream will start shortly.`
-        );
-        // Force retry after a delay
-        setTimeout(() => {
-          if (state.playingAd && channels[channelId].queue.length > 0) {
-            playNextMovie(channelId);
-          }
-        }, 5000);
       }
-    } else {
+    }, 5000);
+  }
+} else {
       bot.editMessageText(
         `✅ Added "${movieName}" to queue!\n\n` +
         `Position: ${channels[channelId].queue.length}\n` +
