@@ -8,7 +8,7 @@ const ffmpeg = require('fluent-ffmpeg');
 const axios = require('axios');
 
 const PORT = 7860;
-const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN || 'YOUR_BOT_TOKEN_HERE';
+const TELEGRAM_TOKEN = process.env.BOT_TOKEN || 'YOUR_BOT_TOKEN_HERE';
 
 const app = express();
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
