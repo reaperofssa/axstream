@@ -1,0 +1,991 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AnitakuX TV</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #000000;
+            color: #ffffff;
+            min-height: 100vh;
+            overflow-x: hidden;
+            font-size: 14px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 15px;
+        }
+
+        .top-nav {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            padding: 8px 0;
+        }
+
+        .back-button {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(255, 20, 147, 0.1);
+            border: 1px solid #ff1493;
+            color: #ff1493;
+            padding: 6px 12px;
+            border-radius: 15px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 12px;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .back-button:hover {
+            background: rgba(255, 20, 147, 0.2);
+            transform: translateY(-1px);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: linear-gradient(135deg, rgba(255, 20, 147, 0.1) 0%, rgba(0, 0, 0, 0.8) 100%);
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 20, 147, 0.2);
+        }
+
+        .logo {
+            font-size: 1.8rem;
+            font-weight: 900;
+            background: linear-gradient(45deg, #ff1493, #ff69b4, #ff1493);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
+        }
+
+        .channel-info {
+            font-size: 1rem;
+            color: #ff69b4;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .video-container {
+            position: relative;
+            width: 100%;
+            max-width: 900px;
+            margin: 0 auto 15px;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4);
+            background: #111111;
+        }
+
+        .video-wrapper {
+            position: relative;
+            padding-bottom: 56.25%;
+            height: 0;
+        }
+
+        video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #000;
+        }
+
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+            transition: opacity 0.3s ease;
+        }
+
+        .loading-spinner {
+            width: 30px;
+            height: 30px;
+            border: 2px solid rgba(255, 20, 147, 0.2);
+            border-top: 2px solid #ff1493;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .control-btn {
+            padding: 6px 12px;
+            background: linear-gradient(135deg, #ff1493 0%, #ff69b4 100%);
+            border: none;
+            border-radius: 15px;
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .control-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(255, 20, 147, 0.4);
+        }
+
+        .control-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .now-next-container {
+            background: linear-gradient(135deg, rgba(255, 20, 147, 0.05) 0%, rgba(0, 0, 0, 0.8) 100%);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255, 20, 147, 0.2);
+        }
+
+        .now-next-title {
+            font-size: 1rem;
+            color: #ff1493;
+            font-weight: 700;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .now-next-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .now-playing-card, .up-next-card {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+            padding: 12px;
+            border-left: 3px solid #ff1493;
+            transition: all 0.3s ease;
+        }
+
+        .up-next-card {
+            border-left-color: #ff69b4;
+        }
+
+        .card-label {
+            font-size: 10px;
+            color: #ff69b4;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+            letter-spacing: 0.5px;
+        }
+
+        .card-title {
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 3px;
+            color: #ffffff;
+        }
+
+        .card-time {
+            font-size: 11px;
+            color: #ff1493;
+            font-weight: 500;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #ff1493;
+            margin-right: 6px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .schedule-container {
+            background: linear-gradient(135deg, rgba(255, 20, 147, 0.05) 0%, rgba(0, 0, 0, 0.8) 100%);
+            border-radius: 12px;
+            padding: 15px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 20, 147, 0.2);
+        }
+
+        .schedule-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .schedule-title {
+            font-size: 1.1rem;
+            color: #ff1493;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .schedule-nav {
+            display: flex;
+            gap: 5px;
+        }
+
+        .nav-btn {
+            padding: 4px 8px;
+            background: rgba(255, 20, 147, 0.1);
+            border: 1px solid rgba(255, 20, 147, 0.3);
+            color: #ff1493;
+            border-radius: 8px;
+            font-size: 10px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .nav-btn:hover, .nav-btn.active {
+            background: rgba(255, 20, 147, 0.2);
+        }
+
+        .schedule-list {
+            max-height: 300px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #ff1493 rgba(255, 20, 147, 0.1);
+        }
+
+        .schedule-list::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .schedule-list::-webkit-scrollbar-track {
+            background: rgba(255, 20, 147, 0.1);
+            border-radius: 3px;
+        }
+
+        .schedule-list::-webkit-scrollbar-thumb {
+            background: #ff1493;
+            border-radius: 3px;
+        }
+
+        .schedule-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            margin-bottom: 8px;
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 8px;
+            border-left: 2px solid #ff1493;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .schedule-item:hover {
+            background: rgba(255, 20, 147, 0.1);
+            transform: translateX(3px);
+        }
+
+        .schedule-item.current {
+            background: rgba(255, 20, 147, 0.15);
+            border-left-color: #ff69b4;
+            box-shadow: 0 0 15px rgba(255, 20, 147, 0.3);
+        }
+
+        .episode-title {
+            font-weight: 600;
+            font-size: 12px;
+            color: #ffffff;
+        }
+
+        .episode-time {
+            color: #ff69b4;
+            font-weight: 500;
+            font-size: 10px;
+        }
+
+        .error-message {
+            text-align: center;
+            color: #ff1493;
+            padding: 15px;
+            background: rgba(255, 20, 147, 0.1);
+            border-radius: 8px;
+            margin: 10px 0;
+            font-size: 12px;
+        }
+
+        .connection-status {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 10px;
+            font-weight: 600;
+            z-index: 1000;
+            transition: all 0.3s ease;
+        }
+
+        .connection-status.connected {
+            background: rgba(0, 255, 0, 0.2);
+            color: #00ff00;
+            border: 1px solid #00ff00;
+        }
+
+        .connection-status.disconnected {
+            background: rgba(255, 0, 0, 0.2);
+            color: #ff0000;
+            border: 1px solid #ff0000;
+        }
+
+        .seamless-indicator {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(255, 20, 147, 0.8);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 10px;
+            font-weight: 600;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .seamless-indicator.show {
+            opacity: 1;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+
+            .now-next-grid {
+                grid-template-columns: 1fr;
+                gap: 10px;
+            }
+
+            .schedule-header {
+                flex-direction: column;
+                gap: 10px;
+                align-items: flex-start;
+            }
+
+            .controls {
+                justify-content: space-around;
+            }
+
+            .control-btn {
+                flex: 1;
+                max-width: 80px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .logo {
+                font-size: 1.5rem;
+            }
+            
+            .header {
+                padding: 10px;
+            }
+            
+            .control-btn {
+                padding: 5px 8px;
+                font-size: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="connection-status" id="connectionStatus">Connecting...</div>
+    
+    <div class="container">
+        <div class="top-nav">
+            <a href="/" class="back-button">
+                ← Home
+            </a>
+            <div class="channel-info" id="channelName">Loading...</div>
+        </div>
+
+        <div class="header">
+            <div class="logo">AnitakuX</div>
+        </div>
+
+        <div class="video-container">
+            <div class="video-wrapper">
+                <video id="videoPlayer" controls muted playsinline webkit-playsinline>
+                    <source id="videoSource" src="" type="application/x-mpegURL">
+                    Your browser does not support HLS video.
+                </video>
+                <div class="loading-overlay" id="loadingOverlay">
+                    <div class="loading-spinner"></div>
+                </div>
+                <div class="seamless-indicator" id="seamlessIndicator">
+                    Seamless Transition
+                </div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button class="control-btn" onclick="toggleMute()">🔊 <span id="muteText">Mute</span></button>
+            <button class="control-btn" onclick="toggleFullscreen()">⛶ Full</button>
+            <button class="control-btn" onclick="refreshStream()" id="refreshBtn">🔄 Refresh</button>
+            <button class="control-btn" onclick="toggleAutoRefresh()" id="autoRefreshBtn">⚡ Auto</button>
+        </div>
+
+        <div class="now-next-container">
+            <div class="now-next-title">📺 Now & Up Next</div>
+            <div class="now-next-grid">
+                <div class="now-playing-card">
+                    <div class="card-label">
+                        <span class="status-indicator"></span>Now Playing
+                    </div>
+                    <div class="card-title" id="currentShow">Loading...</div>
+                    <div class="card-time" id="currentTime">--:-- - --:--</div>
+                </div>
+                <div class="up-next-card">
+                    <div class="card-label">Up Next</div>
+                    <div class="card-title" id="nextShow">Loading...</div>
+                    <div class="card-time" id="nextTime">--:-- - --:--</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="schedule-container">
+            <div class="schedule-header">
+                <div class="schedule-title">📋 Program Guide</div>
+                <div class="schedule-nav">
+                    <button class="nav-btn active" onclick="showToday()">Today</button>
+                    <button class="nav-btn" onclick="showTomorrow()">Tomorrow</button>
+                    <button class="nav-btn" onclick="scrollToNow()">Now</button>
+                </div>
+            </div>
+            <div class="schedule-list" id="scheduleList">
+                <div class="schedule-item">
+                    <div class="episode-title">Loading schedule...</div>
+                    <div class="episode-time">Please wait</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.4.12/hls.min.js"></script>
+    <script>
+        let hls;
+        let channelId;
+        let scheduleInterval;
+        let currentSchedule = [];
+        let autoRefresh = false;
+        let autoRefreshInterval;
+        let connectionCheckInterval;
+        let lastPlaybackTime = 0;
+        let seamlessTransitionTimeout;
+
+        // Enhanced channel name mapping
+        const channelNames = {
+            'channel1': 'Anitaku TV 1',
+            'channel2': 'Anitaku TV 2', 
+            'channel3': 'Anitaku TV 3',
+            'channel4': 'Anitaku TV 4',
+            'channel5': 'Anitaku TV 5',
+            'channel6': 'Anitaku TV 6'
+        };
+
+        // Get channel ID from URL
+        function getChannelId() {
+            const path = window.location.pathname;
+            const match = path.match(/\/watch\/(.+)/);
+            return match ? match[1] : 'channel1';
+        }
+
+        // Enhanced connection status monitoring
+        function updateConnectionStatus(status) {
+            const statusEl = document.getElementById('connectionStatus');
+            statusEl.className = `connection-status ${status}`;
+            statusEl.textContent = status === 'connected' ? '🟢 Live' : '🔴 Reconnecting...';
+        }
+
+        // Seamless transition indicator
+        function showSeamlessIndicator() {
+            const indicator = document.getElementById('seamlessIndicator');
+            indicator.classList.add('show');
+            clearTimeout(seamlessTransitionTimeout);
+            seamlessTransitionTimeout = setTimeout(() => {
+                indicator.classList.remove('show');
+            }, 3000);
+        }
+
+        // Enhanced player initialization with seamless streaming support
+        function initPlayer() {
+            channelId = getChannelId();
+            const video = document.getElementById('videoPlayer');
+            const loadingOverlay = document.getElementById('loadingOverlay');
+            
+            // Update channel name
+            const channelName = channelNames[channelId] || `Channel ${channelId.replace('channel', '')}`;
+            document.getElementById('channelName').textContent = channelName;
+            
+            const streamUrl = `/hls/${channelId}/master.m3u8`;
+            
+            // Enhanced video attributes for seamless playback
+            video.setAttribute('playsinline', '');
+            video.setAttribute('webkit-playsinline', '');
+            video.setAttribute('preload', 'auto');
+            
+            if (Hls.isSupported()) {
+                hls = new Hls({
+                    debug: false,
+                    enableWorker: true,
+                    lowLatencyMode: true,
+                    backBufferLength: 90,
+                    maxBufferLength: 30,
+                    maxMaxBufferLength: 60,
+                    liveSyncDurationCount: 3,
+                    liveMaxLatencyDurationCount: 10,
+                    liveDurationInfinity: true,
+                    highBufferWatchdogPeriod: 2,
+                    nudgeOffset: 0.1,
+                    nudgeMaxRetry: 3,
+                    maxFragLookUpTolerance: 0.25,
+                    fragLoadingTimeOut: 20000,
+                    manifestLoadingTimeOut: 10000,
+                    levelLoadingTimeOut: 10000
+                });
+                
+                hls.loadSource(streamUrl);
+                hls.attachMedia(video);
+                
+                hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                    console.log('✅ Manifest loaded, starting seamless playback');
+                    loadingOverlay.style.display = 'none';
+                    updateConnectionStatus('connected');
+                    
+                    // Auto-play for seamless experience
+                    video.play().catch(e => {
+                        console.log('Auto-play prevented, user interaction required');
+                    });
+                });
+                
+                hls.on(Hls.Events.FRAG_CHANGED, function() {
+                    // Detect seamless transitions
+                    const currentTime = video.currentTime;
+                    if (Math.abs(currentTime - lastPlaybackTime) > 1) {
+                        showSeamlessIndicator();
+                    }
+                    lastPlaybackTime = currentTime;
+                });
+                
+                hls.on(Hls.Events.ERROR, function(event, data) {
+                    console.log('HLS Error:', data);
+                    updateConnectionStatus('disconnected');
+                    
+                    if (data.fatal) {
+                        switch(data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                console.log('🔄 Network error, attempting recovery...');
+                                setTimeout(() => {
+                                    hls.startLoad();
+                                }, 1000);
+                                break;
+                            case Hls.ErrorTypes.MEDIA_ERROR:
+                                console.log('🔄 Media error, attempting recovery...');
+                                setTimeout(() => {
+                                    hls.recoverMediaError();
+                                }, 1000);
+                                break;
+                            default:
+                                console.log('💥 Fatal error, reinitializing...');
+                                setTimeout(() => {
+                                    reinitializePlayer();
+                                }, 3000);
+                                break;
+                        }
+                    }
+                });
+                
+                // Enhanced buffering detection
+                hls.on(Hls.Events.BUFFER_APPENDED, function() {
+                    updateConnectionStatus('connected');
+                });
+                
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                // Native HLS support (Safari)
+                video.src = streamUrl;
+                video.addEventListener('loadedmetadata', function() {
+                    loadingOverlay.style.display = 'none';
+                    updateConnectionStatus('connected');
+                });
+            } else {
+                showError('HLS streaming is not supported in this browser.');
+                return;
+            }
+            
+            // Enhanced video event listeners for seamless experience
+            video.addEventListener('loadstart', () => {
+                loadingOverlay.style.display = 'flex';
+                updateConnectionStatus('disconnected');
+            });
+            
+            video.addEventListener('canplay', () => {
+                loadingOverlay.style.display = 'none';
+                updateConnectionStatus('connected');
+            });
+            
+            video.addEventListener('waiting', () => {
+                loadingOverlay.style.display = 'flex';
+            });
+            
+            video.addEventListener('playing', () => {
+                loadingOverlay.style.display = 'none';
+                updateConnectionStatus('connected');
+            });
+            
+            video.addEventListener('stalled', () => {
+                console.log('⚠️ Stream stalled, checking connection...');
+                updateConnectionStatus('disconnected');
+            });
+            
+            video.addEventListener('suspend', () => {
+                console.log('📡 Stream suspended');
+            });
+            
+            video.addEventListener('abort', () => {
+                console.log('🛑 Stream aborted');
+                updateConnectionStatus('disconnected');
+            });
+            
+            // Monitor playback health
+            startConnectionMonitoring();
+        }
+
+        // Connection monitoring for seamless experience
+        function startConnectionMonitoring() {
+            connectionCheckInterval = setInterval(() => {
+                const video = document.getElementById('videoPlayer');
+                if (video && !video.paused && !video.ended) {
+                    const currentTime = video.currentTime;
+                    if (currentTime === lastPlaybackTime) {
+                        console.log('⚠️ Playback stalled, attempting refresh...');
+                        updateConnectionStatus('disconnected');
+                        if (autoRefresh) {
+                            refreshStream();
+                        }
+                    } else {
+                        updateConnectionStatus('connected');
+                    }
+                    lastPlaybackTime = currentTime;
+                }
+            }, 5000);
+        }
+
+        // Reinitialize player for recovery
+        function reinitializePlayer() {
+            console.log('🔄 Reinitializing player for seamless recovery...');
+            if (hls) {
+                hls.destroy();
+            }
+            clearInterval(connectionCheckInterval);
+            setTimeout(() => {
+                initPlayer();
+            }, 1000);
+        }
+
+        // Enhanced schedule loading with real-time updates
+        async function loadSchedule() {
+            try {
+                const response = await fetch(`/api/schedule/${channelId}`);
+                if (!response.ok) throw new Error('Schedule fetch failed');
+                
+                const schedule = await response.json();
+                currentSchedule = schedule;
+                
+                const scheduleList = document.getElementById('scheduleList');
+                scheduleList.innerHTML = '';
+                
+                if (schedule.length === 0) {
+                    scheduleList.innerHTML = '<div class="schedule-item"><div class="episode-title">No scheduled programs</div></div>';
+                    return;
+                }
+                
+                const now = new Date();
+                const currentTime = now.toLocaleTimeString('en-US', { 
+                    hour12: false,
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+                
+                let currentShow = null;
+                let nextShow = null;
+                
+                schedule.forEach((item, index) => {
+                    const scheduleItem = document.createElement('div');
+                    scheduleItem.className = 'schedule-item';
+                    
+                    // Enhanced current program detection
+                    const isCurrent = isTimeInRange(currentTime, item.startTime, item.endTime);
+                    if (isCurrent) {
+                        scheduleItem.classList.add('current');
+                        currentShow = item;
+                        nextShow = schedule[index + 1] || null;
+                    }
+                    
+                    scheduleItem.innerHTML = `
+                        <div class="episode-title">${item.title}</div>
+                        <div class="episode-time">${item.startTime} - ${item.endTime}</div>
+                    `;
+                    
+                    scheduleList.appendChild(scheduleItem);
+                });
+                
+                // Update Now & Up Next section
+                updateNowNext(currentShow, nextShow);
+                
+            } catch (error) {
+                console.error('Failed to load schedule:', error);
+                document.getElementById('scheduleList').innerHTML = 
+                    '<div class="schedule-item"><div class="episode-title">Failed to load schedule</div></div>';
+            }
+        }
+
+        // Enhanced time range checking
+        function isTimeInRange(currentTime, startTime, endTime) {
+            const current = timeToMinutes(currentTime);
+            const start = timeToMinutes(startTime);
+            const end = timeToMinutes(endTime);
+            
+            if (end < start) {
+                // Crosses midnight
+                return current >= start || current <= end;
+            } else {
+                return current >= start && current <= end;
+            }
+        }
+
+        function timeToMinutes(timeStr) {
+            const [hours, minutes] = timeStr.split(':').map(Number);
+            return hours * 60 + minutes;
+        }
+
+        // Enhanced Now & Up Next updates
+        function updateNowNext(current, next) {
+            const currentShowEl = document.getElementById('currentShow');
+            const currentTimeEl = document.getElementById('currentTime');
+            const nextShowEl = document.getElementById('nextShow');
+            const nextTimeEl = document.getElementById('nextTime');
+            
+            if (current) {
+                currentShowEl.textContent = current.title;
+                currentTimeEl.textContent = `${current.startTime} - ${current.endTime}`;
+                
+                // Show transition indicator near program end
+                const now = new Date();
+                const endTime = new Date(now.toDateString() + ' ' + current.endTime);
+                const timeUntilEnd = endTime.getTime() - now.getTime();
+                
+                if (timeUntilEnd <= 60000 && timeUntilEnd > 0) { // 1 minute before end
+                    showSeamlessIndicator();
+                }
+            } else {
+                currentShowEl.textContent = 'No current program';
+                currentTimeEl.textContent = '--:-- - --:--';
+            }
+            
+            if (next) {
+                nextShowEl.textContent = next.title;
+                nextTimeEl.textContent = `${next.startTime} - ${next.endTime}`;
+            } else {
+                nextShowEl.textContent = 'No upcoming program';
+                nextTimeEl.textContent = '--:-- - --:--';
+            }
+        }
+
+        // Navigation functions
+        function showToday() {
+            document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            loadSchedule();
+        }
+
+        function showTomorrow() {
+            document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            console.log('Tomorrow\'s schedule feature coming soon...');
+        }
+
+        function scrollToNow() {
+            const currentItem = document.querySelector('.schedule-item.current');
+            if (currentItem) {
+                currentItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+
+        // Enhanced control functions
+        function toggleMute() {
+            const video = document.getElementById('videoPlayer');
+            const muteText = document.getElementById('muteText');
+            video.muted = !video.muted;
+            muteText.textContent = video.muted ? 'Unmute' : 'Mute';
+        }
+
+        function toggleFullscreen() {
+            const video = document.getElementById('videoPlayer');
+            if (video.requestFullscreen) {
+                video.requestFullscreen();
+            } else if (video.webkitRequestFullscreen) {
+                video.webkitRequestFullscreen();
+            } else if (video.msRequestFullscreen) {
+                video.msRequestFullscreen();
+            }
+        }
+
+        function refreshStream() {
+            const refreshBtn = document.getElementById('refreshBtn');
+            const loadingOverlay = document.getElementById('loadingOverlay');
+            
+            refreshBtn.disabled = true;
+            refreshBtn.textContent = '🔄 Refreshing...';
+            loadingOverlay.style.display = 'flex';
+            
+            setTimeout(() => {
+                reinitializePlayer();
+                refreshBtn.disabled = false;
+                refreshBtn.innerHTML = '🔄 Refresh';
+            }, 2000);
+        }
+
+        function toggleAutoRefresh() {
+            const autoRefreshBtn = document.getElementById('autoRefreshBtn');
+            autoRefresh = !autoRefresh;
+            
+            if (autoRefresh) {
+                autoRefreshBtn.innerHTML = '⚡ Auto ON';
+                autoRefreshBtn.style.background = 'linear-gradient(135deg, #00ff00 0%, #00cc00 100%)';
+                
+                // Auto-refresh every 5 minutes if connection issues
+                autoRefreshInterval = setInterval(() => {
+                    const video = document.getElementById('videoPlayer');
+                    if (video.paused || video.ended || video.currentTime === lastPlaybackTime) {
+                        console.log('🔄 Auto-refresh triggered');
+                        refreshStream();
+                    }
+                }, 300000); // 5 minutes
+            } else {
+                autoRefreshBtn.innerHTML = '⚡ Auto';
+                autoRefreshBtn.style.background = 'linear-gradient(135deg, #ff1493 0%, #ff69b4 100%)';
+                clearInterval(autoRefreshInterval);
+            }
+        }
+
+        function showError(message) {
+            const loadingOverlay = document.getElementById('loadingOverlay');
+            loadingOverlay.innerHTML = `
+                <div class="error-message">
+                    <h3>⚠️ Stream Error</h3>
+                    <p>${message}</p>
+                    <button class="control-btn" onclick="refreshStream()" style="margin-top: 10px;">
+                        🔄 Try Again
+                    </button>
+                </div>
+            `;
+        }
+
+        // Initialize everything when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('🚀 Initializing AnitakuX seamless streaming...');
+            
+            initPlayer();
+            loadSchedule();
+            
+            // Enhanced schedule refresh for real-time updates
+            scheduleInterval = setInterval(() => {
+                loadSchedule();
+            }, 15000); // Every 15 seconds for better real-time experience
+            
+            // Keyboard shortcuts for better UX
+            document.addEventListener('keydown', function(e) {
+                const video = document.getElementById('videoPlayer');
+                switch(e.key) {
+                    case ' ':
+                        e.preventDefault();
+                        video.paused ? video.play() : video.pause();
+                        break;
+                    case 'm':
+                        toggleMute();
+                        break;
+                    case 'f':
+                        toggleFullscreen();
+                        break;
+                    case 'r':
+                        refreshStream();
+                        break;
+                }
+            });
+        });
+
+        // Enhanced cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            console.log('🧹 Cleaning up resources...');
+            if (hls) {
+                hls.destroy();
+            }
+            clearInterval(scheduleInterval);
+            clearInterval(autoRefreshInterval);
+            clearInterval(connectionCheckInterval);
+            clearTimeout(seamlessTransitionTimeout);
+        });
+
+        // Handle visibility changes for better resource management
+        document.addEventListener('visibilitychange', function() {
+            const video = document.getElementById('videoPlayer');
+            if (document.hidden) {
+                console.log('📱 Page hidden, maintaining stream...');
+            } else {
+                console.log('👁️ Page visible, ensuring optimal playback...');
+                if (video && video.paused) {
+                    video.play().catch(e => console.log('Play prevented:', e));
+                }
+            }
+        });
+    </script>
+</body>
+</html>
