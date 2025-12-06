@@ -451,14 +451,14 @@ async function initializeChannel(channelId) {
 
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
-  bot.sendMessage(chatId, 
+  bot.sendMessage(chatId,
     `🎬 *Welcome to AnitakuX Movie Streaming Bot!*\n\n` +
     `*Commands:*\n` +
-    `/play <movie name>` - Reply to a video/document\n` +
-    `/play <movie name>|<url>` - Add from direct link\n` +
-    `/queue` - View current queue\n` +
-    `/channels` - List all channels\n` +
-    `/status` - Check streaming status\n\n` +
+    `/play <movie name> - Reply to a video/document\n` +
+    `/play <movie name>|<url> - Add from direct link\n` +
+    `/queue - View current queue\n` +
+    `/channels - List all channels\n` +
+    `/status - Check streaming status\n\n` +
     `*How to use:*\n` +
     `1. Add me to a group to create a channel\n` +
     `2. Use /play to add movies\n` +
