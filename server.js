@@ -975,6 +975,8 @@ bot.onText(/\/queue/, (msg) => {
   bot.sendMessage(chatId, queueText, { parse_mode: 'Markdown' });
 });
 
+// Find this section around line 780-810 and replace it:
+
 bot.onText(/\/channels/, (msg) => {
   const chatId = msg.chat.id;
 
@@ -995,7 +997,8 @@ bot.onText(/\/channels/, (msg) => {
     channelText += `   Watch: https://axstream.onrender.com/watch/${id}\n\n`;
   });
 
-  bot.sendMessage(chatId, channelText);
+  bot.sendMessage(chatId, channelText, { parse_mode: 'Markdown' });
+}); // <-- THIS CLOSING BRACE WAS MISSING!
 
 bot.onText(/\/status/, async (msg) => {
   const chatId = msg.chat.id;
@@ -1036,7 +1039,6 @@ bot.onText(/\/status/, async (msg) => {
 
   bot.sendMessage(chatId, statusText, { parse_mode: 'Markdown' });
 });
-
 // ==================== API ROUTES ====================
 
 app.get('/', (req, res) => {
@@ -1330,3 +1332,4 @@ app.listen(PORT, () => {
   console.log(`   /queue - View queue`);
   console.log(`   /channels - List channels`);
 });
+
