@@ -147,15 +147,20 @@ let readyCheckTimeout = null;
 readyCheckTimeout = setTimeout(() => {
   if (!isReady) {
     console.log(`⚠️ [${channelId}-${slotId}] Ready timeout, checking files...`);
-    // Check if files exist as fallback
     const masterPath = path.join(outputDir, `master_${slotId}.m3u8`);
     const streamPath = path.join(outputDir, `stream_${slotId}.m3u8`);
-    if (fs.existsSync(masterPath) && fs.existsSync(streamPath)) {
+    
+    // Check for both playlists AND at least one segment
+    const files = fs.readdirSync(outputDir);
+    const hasSegments = files.some(f => f.startsWith(`segment_${slotId}_`) && f.endsWith('.ts'));
+    
+    if (fs.existsSync(masterPath) && fs.existsSync(streamPath) && hasSegments) {
       isReady = true;
+      console.log(`✅ [${channelId}-${slotId}] Ready via timeout check`);
       if (onReady) onReady();
     }
   }
-}, 10000); // 10 second timeout
+}, 15000); // 15 second timeout
 
   proc.stderr.on('data', data => {
     const output = data.toString();
@@ -878,15 +883,14 @@ bot.onText(/\/play (.+)/, async (msg, match) => {
     const state = channelStates[channelId];
     const isFirstMovie = channels[channelId].queue.length === 1;
 
-    // If this is the first movie and ad is playing, switch to it
-    // If this is the first movie and ad is playing, switch to it
+// If this is the first movie and ad is playing, switch to it
 if (isFirstMovie && state && state.playingAd) {
   bot.editMessageText(
     `⏳ "${movieName}" downloaded! Preparing to stream...`,
     { chat_id: chatId, message_id: statusMsg.message_id }
   );
   
-  // CRITICAL: Kill the ad process first before preloading
+  // STEP 1: Kill the ad process
   if (state.currentProcess) {
     console.log(`🛑 [${channelId}] Stopping ad to start movie`);
     state.currentProcess.kill('SIGKILL');
@@ -895,45 +899,72 @@ if (isFirstMovie && state && state.playingAd) {
     state.isPlaying = false;
   }
   
-  // Wait a moment for the process to fully terminate
-  await new Promise(resolve => setTimeout(resolve, 1000));
+  // STEP 2: Wait for process to fully terminate
+  await new Promise(resolve => setTimeout(resolve, 2000));
   
-  // FIXED: Ensure movie is fully preloaded before attempting to play
+  // STEP 3: Start preloading the movie
   state.preloadReady = false;
+  console.log(`🔄 [${channelId}] Starting preload for first movie`);
   const preloaded = await preloadNextMovie(channelId);
   
-  // Wait a bit longer to ensure segments are ready
-  await new Promise(resolve => setTimeout(resolve, 3000));
-  
-  if (preloaded && state.preloadReady) {
-    playNextMovie(channelId);
-    bot.sendMessage(chatId, 
-      `🎬 Now playing "${movieName}"!\n\n` +
-      `Format: ${fileExtension.toUpperCase()}\n` +
-      `Size: ${(stats.size / (1024 * 1024)).toFixed(1)}MB\n\n` +
-      `Watch: https://axstream.onrender.com/watch/${channelId}`
-    );
-  } else {
-    bot.sendMessage(chatId, 
-      `⚠️ "${movieName}" added to queue. Stream will start shortly.`
-    );
-    // Force retry after a delay
-    setTimeout(() => {
-      if (!state.isPlaying && channels[channelId].queue.length > 0) {
-        playNextMovie(channelId);
-      }
-    }, 5000);
+  if (!preloaded) {
+    bot.sendMessage(chatId, `⚠️ "${movieName}" added but preload failed. Retrying...`);
+    setTimeout(() => playNextMovie(channelId), 3000);
+    return;
   }
-} else {
-      bot.editMessageText(
-        `✅ Added "${movieName}" to queue!\n\n` +
-        `Position: ${channels[channelId].queue.length}\n` +
-        `Format: ${fileExtension.toUpperCase()}\n` +
-        `Size: ${(stats.size / (1024 * 1024)).toFixed(1)}MB\n\n` +
-        `Watch: https://axstream.onrender.com/watch/${channelId}`,
-        { chat_id: chatId, message_id: statusMsg.message_id }
-      );
+  
+  // STEP 4: Wait additional time for HLS segments to be generated
+  console.log(`⏳ [${channelId}] Waiting for HLS segments...`);
+  await new Promise(resolve => setTimeout(resolve, 5000));
+  
+  // STEP 5: Verify segments exist before switching
+  const channelOutput = getChannelOutput(channelId);
+  const masterPath = path.join(channelOutput, `master_${state.nextSlot}.m3u8`);
+  const streamPath = path.join(channelOutput, `stream_${state.nextSlot}.m3u8`);
+  
+  let segmentsReady = false;
+  for (let i = 0; i < 10; i++) {
+    if (fs.existsSync(masterPath) && fs.existsSync(streamPath)) {
+      // Also check for at least one segment file
+      const files = fs.readdirSync(channelOutput);
+      const hasSegments = files.some(f => f.startsWith(`segment_${state.nextSlot}_`) && f.endsWith('.ts'));
+      
+      if (hasSegments) {
+        segmentsReady = true;
+        console.log(`✅ [${channelId}] Segments verified and ready`);
+        break;
+      }
     }
+    console.log(`⏳ [${channelId}] Waiting for segments... (${i+1}/10)`);
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+  
+  if (!segmentsReady) {
+    bot.sendMessage(chatId, `⚠️ "${movieName}" added but stream not ready. Will retry automatically.`);
+    setTimeout(() => playNextMovie(channelId), 5000);
+    return;
+  }
+  
+  // STEP 6: Now play the movie
+  state.preloadReady = true;
+  playNextMovie(channelId);
+  
+  bot.sendMessage(chatId, 
+    `🎬 Now playing "${movieName}"!\n\n` +
+    `Format: ${fileExtension.toUpperCase()}\n` +
+    `Size: ${(stats.size / (1024 * 1024)).toFixed(1)}MB\n\n` +
+    `Watch: https://axstream.onrender.com/watch/${channelId}`
+  );
+} else {
+  bot.editMessageText(
+    `✅ Added "${movieName}" to queue!\n\n` +
+    `Position: ${channels[channelId].queue.length}\n` +
+    `Format: ${fileExtension.toUpperCase()}\n` +
+    `Size: ${(stats.size / (1024 * 1024)).toFixed(1)}MB\n\n` +
+    `Watch: https://axstream.onrender.com/watch/${channelId}`,
+    { chat_id: chatId, message_id: statusMsg.message_id }
+  );
+}
 
   } catch (error) {
     console.error('Error processing video:', error);
