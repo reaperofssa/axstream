@@ -101,6 +101,22 @@ async function generateDynamicSchedule(channelId, channelConfig, currentMovieInf
 }
 
 function startFFmpeg(channelId, inputPath, outputDir, movieTitle, slotId, onExit, onReady, isAd = false) {
+  // VERIFY INPUT FILE EXISTS
+  if (!fs.existsSync(inputPath)) {
+    console.error(`❌ [${channelId}-${slotId}] Input file not found: ${inputPath}`);
+    if (onExit) onExit(-1);
+    return null;
+  }
+
+  // VERIFY INPUT FILE IS READABLE
+  try {
+    fs.accessSync(inputPath, fs.constants.R_OK);
+  } catch (error) {
+    console.error(`❌ [${channelId}-${slotId}] Input file not readable: ${inputPath}`);
+    if (onExit) onExit(-1);
+    return null;
+  }
+
   const args = [
     '-stream_loop', isAd ? '-1' : '0',
     '-re', '-i', inputPath,
