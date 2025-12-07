@@ -381,8 +381,18 @@ async function playNextMovie(channelId) {
     }
   }
 
-  // Remove movie from queue
-  const movie = channelConfig.queue.shift();
+  // CRITICAL FIX: Get movie reference BEFORE shifting from queue
+  const movie = channelConfig.queue[0];
+  
+  // Additional safety check
+  if (!movie) {
+    console.error(`❌ [${channelId}] Movie object is undefined!`);
+    state.preloadReady = false;
+    return;
+  }
+
+  // Now remove from queue
+  channelConfig.queue.shift();
   console.log(`🎬 [${channelId}] Now playing "${movie.title}"`);
 
   // Swap slots
@@ -436,7 +446,6 @@ async function playNextMovie(channelId) {
     }, 10000);
   }
 }
-
 async function initializeChannel(channelId) {
   const channelConfig = channels[channelId];
   const channelOutput = getChannelOutput(channelId);
