@@ -449,7 +449,7 @@ async function preloadNextMovie(channelId) {
     }, 20000);
   });
 }
-}
+
 
 // Replace the playNextMovie function with this improved version:
 
