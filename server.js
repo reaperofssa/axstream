@@ -329,7 +329,6 @@ async function preloadNextMovie(channelId) {
 
   state.preloadReady = false;
 
-  // Return a promise that resolves when preload is ready
   return new Promise((resolve) => {
     state.nextProcess = startFFmpeg(
       channelId,
@@ -338,11 +337,21 @@ async function preloadNextMovie(channelId) {
       nextMovie.title,
       state.nextSlot,
       (exitCode) => {
-        console.log(`✅ [${channelId}] Movie "${nextMovie.title}" finished (${exitCode})`);
+        console.log(`✅ [${channelId}] Movie "${nextMovie.title}" finished playing (${exitCode})`);
         state.nextProcess = null;
+        state.isPlaying = false;
         
-        // Movie finished, play next one
-        playNextMovie(channelId);
+        // FIXED: Don't call playNextMovie here - it will be called by the queue check
+        // Instead, just trigger the next cycle after a delay
+        setTimeout(() => {
+          if (channelConfig.queue.length > 0) {
+            playNextMovie(channelId);
+          } else {
+            // Queue is empty, return to ad
+            state.playingAd = false;
+            playAd(channelId);
+          }
+        }, 1000);
       },
       () => {
         console.log(`🟢 [${channelId}] Movie "${nextMovie.title}" preloaded and ready!`);
@@ -352,7 +361,6 @@ async function preloadNextMovie(channelId) {
       false
     );
 
-    // Timeout fallback if onReady never fires
     setTimeout(() => {
       if (!state.preloadReady) {
         console.log(`⚠️ [${channelId}] Preload timeout, checking manually...`);
@@ -364,7 +372,7 @@ async function preloadNextMovie(channelId) {
           resolve(false);
         }
       }
-    }, 15000); // 15 second timeout
+    }, 15000);
   });
 }
 
@@ -381,7 +389,6 @@ async function playNextMovie(channelId) {
     state.isPlaying = false;
     state.preloadReady = false;
     
-    // Kill current process and start ad
     if (state.currentProcess) {
       state.currentProcess.kill('SIGKILL');
       state.currentProcess = null;
@@ -395,13 +402,11 @@ async function playNextMovie(channelId) {
   if (!state.preloadReady) {
     console.log(`⏳ [${channelId}] Movie not preloaded yet, forcing preload now...`);
     
-    // Kill any existing next process
     if (state.nextProcess) {
       state.nextProcess.kill('SIGKILL');
       state.nextProcess = null;
     }
     
-    // Force preload and wait for it
     const preloaded = await preloadNextMovie(channelId);
     
     if (!preloaded || !state.preloadReady) {
@@ -411,19 +416,20 @@ async function playNextMovie(channelId) {
     }
   }
 
-  // CRITICAL FIX: Get movie reference BEFORE shifting from queue
+  // CRITICAL FIX: Get movie reference BEFORE shifting, and mark it as "currently playing"
   const movie = channelConfig.queue[0];
   
-  // Additional safety check
   if (!movie) {
     console.error(`❌ [${channelId}] Movie object is undefined!`);
     state.preloadReady = false;
     return;
   }
 
-  // Now remove from queue
-  channelConfig.queue.shift();
-  console.log(`🎬 [${channelId}] Now playing "${movie.title}"`);
+  // IMPORTANT: Store movie info BEFORE removing from queue
+  const movieTitle = movie.title;
+  const movieFilePath = movie.filePath;
+  
+  console.log(`🎬 [${channelId}] Now playing "${movieTitle}"`);
 
   // Swap slots
   const oldSlot = state.activeSlot;
@@ -440,7 +446,7 @@ async function playNextMovie(channelId) {
   state.nextProcess = null;
   state.playingAd = false;
   state.isPlaying = true;
-  state.preloadReady = false; // Reset for next movie
+  state.preloadReady = false;
 
   // Switch stream with verification
   const switched = switchActiveStream(channelOutput, state.activeSlot);
@@ -451,22 +457,23 @@ async function playNextMovie(channelId) {
     }, 1000);
   }
 
-  // Update schedule
-  const duration = await getVideoDuration(movie.filePath);
+  // Update schedule and metadata
+  const duration = await getVideoDuration(movieFilePath);
   const startTime = new Date();
   const endTime = new Date(startTime.getTime() + duration);
 
-  channelConfig.currentMovie = movie.title;
+  channelConfig.currentMovie = movieTitle;
   channelConfig.currentStartTime = startTime;
   channelConfig.currentEndTime = endTime;
   
-  // Regenerate schedule immediately when new movie starts
   channelConfig.schedule = await generateDynamicSchedule(channelId, channelConfig, {
-    title: movie.title,
+    title: movieTitle,
     startTime: startTime,
     endTime: endTime
   });
 
+  // NOW remove from queue after everything is set up
+  channelConfig.queue.shift();
   fs.writeFileSync(channelsFile, JSON.stringify(channels, null, 2));
 
   // Preload next movie if available
@@ -476,6 +483,7 @@ async function playNextMovie(channelId) {
     }, 10000);
   }
 }
+
 async function initializeChannel(channelId) {
   const channelConfig = channels[channelId];
   const channelOutput = getChannelOutput(channelId);
