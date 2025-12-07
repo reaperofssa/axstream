@@ -142,25 +142,57 @@ function startFFmpeg(channelId, inputPath, outputDir, movieTitle, slotId, onExit
 
  let isReady = false;
 let readyCheckTimeout = null;
+let segmentCheckInterval = null;
 
-// Enhanced ready detection with timeout
-readyCheckTimeout = setTimeout(() => {
-  if (!isReady) {
-    console.log(`⚠️ [${channelId}-${slotId}] Ready timeout, checking files...`);
+// More reliable ready detection - check for actual playable segments
+const checkSegmentsReady = () => {
+  try {
     const masterPath = path.join(outputDir, `master_${slotId}.m3u8`);
     const streamPath = path.join(outputDir, `stream_${slotId}.m3u8`);
     
-    // Check for both playlists AND at least one segment
-    const files = fs.readdirSync(outputDir);
-    const hasSegments = files.some(f => f.startsWith(`segment_${slotId}_`) && f.endsWith('.ts'));
-    
-    if (fs.existsSync(masterPath) && fs.existsSync(streamPath) && hasSegments) {
-      isReady = true;
-      console.log(`✅ [${channelId}-${slotId}] Ready via timeout check`);
-      if (onReady) onReady();
+    if (!fs.existsSync(masterPath) || !fs.existsSync(streamPath)) {
+      return false;
     }
+    
+    // Read the stream playlist to check for segments
+    const streamContent = fs.readFileSync(streamPath, 'utf8');
+    const segmentMatches = streamContent.match(/segment_.*?\.ts/g);
+    
+    if (!segmentMatches || segmentMatches.length === 0) {
+      return false;
+    }
+    
+    // Verify at least one segment file actually exists
+    const hasActualSegment = segmentMatches.some(segName => {
+      const segPath = path.join(outputDir, segName);
+      return fs.existsSync(segPath) && fs.statSync(segPath).size > 0;
+    });
+    
+    return hasActualSegment;
+  } catch (e) {
+    return false;
   }
-}, 15000); // 15 second timeout
+};
+
+// Check for segments every 500ms
+segmentCheckInterval = setInterval(() => {
+  if (!isReady && checkSegmentsReady()) {
+    isReady = true;
+    clearInterval(segmentCheckInterval);
+    clearTimeout(readyCheckTimeout);
+    console.log(`✅ [${channelId}-${slotId}] Stream ready with playable segments!`);
+    if (onReady) onReady();
+  }
+}, 500);
+
+// Timeout after 20 seconds
+readyCheckTimeout = setTimeout(() => {
+  clearInterval(segmentCheckInterval);
+  if (!isReady) {
+    console.log(`❌ [${channelId}-${slotId}] Ready timeout - no playable segments found`);
+    // Don't call onReady if segments aren't actually ready
+  }
+}, 20000); // 15 second timeout
 
   proc.stderr.on('data', data => {
     const output = data.toString();
@@ -207,42 +239,55 @@ function switchActiveStream(channelOutput, toSlot) {
   const targetStream = path.join(channelOutput, `stream_${toSlot}.m3u8`);
 
   try {
-    // Verify target files exist before switching
+    // Verify target files exist and are readable
     if (!fs.existsSync(targetMaster) || !fs.existsSync(targetStream)) {
-      console.log(`⚠️ Target files not ready for slot ${toSlot}, waiting...`);
+      console.log(`⚠️ Target files not ready for slot ${toSlot}`);
       return false;
     }
 
-    // Remove old symlinks/files if they exist
-    try {
-      if (fs.existsSync(masterLink)) {
-        const stats = fs.lstatSync(masterLink);
-        if (stats.isSymbolicLink() || stats.isFile()) {
-          fs.unlinkSync(masterLink);
-        }
-      }
-      if (fs.existsSync(streamLink)) {
-        const stats = fs.lstatSync(streamLink);
-        if (stats.isSymbolicLink() || stats.isFile()) {
-          fs.unlinkSync(streamLink);
-        }
-      }
-    } catch (unlinkError) {
-      console.error(`Error removing old links:`, unlinkError);
+    // Verify target files have content
+    const masterStats = fs.statSync(targetMaster);
+    const streamStats = fs.statSync(targetStream);
+    
+    if (masterStats.size === 0 || streamStats.size === 0) {
+      console.log(`⚠️ Target files empty for slot ${toSlot}`);
+      return false;
     }
 
-    // CRITICAL: Use file copy instead of symlinks for compatibility
+    // Verify stream playlist has actual segments listed
+    try {
+      const streamContent = fs.readFileSync(targetStream, 'utf8');
+      if (!streamContent.includes('.ts')) {
+        console.log(`⚠️ No segments in playlist for slot ${toSlot}`);
+        return false;
+      }
+    } catch (e) {
+      console.log(`⚠️ Cannot read stream playlist for slot ${toSlot}`);
+      return false;
+    }
+
+    // Remove old links/files
+    [masterLink, streamLink].forEach(link => {
+      try {
+        if (fs.existsSync(link)) {
+          fs.unlinkSync(link);
+        }
+      } catch (e) {
+        console.error(`Warning: Could not remove ${link}:`, e.message);
+      }
+    });
+
+    // Copy files (more reliable than symlinks)
     fs.copyFileSync(targetMaster, masterLink);
     fs.copyFileSync(targetStream, streamLink);
 
-    console.log(`🔄 Switched to slot ${toSlot}`);
+    console.log(`🔄 Successfully switched to slot ${toSlot}`);
     return true;
   } catch (error) {
-    console.error(`Error switching streams:`, error);
+    console.error(`❌ Error switching streams:`, error.message);
     return false;
   }
 }
-
 // ==================== CHANNEL MANAGEMENT ====================
 
 function getChannelOutput(channelId) {
@@ -324,17 +369,33 @@ async function preloadNextMovie(channelId) {
     return false;
   }
 
-  const nextMovie = channelConfig.queue[0];
-  console.log(`🔄 [${channelId}] Preloading "${nextMovie.title}" in slot ${state.nextSlot}`);
-
+  // Prevent duplicate preload attempts
   if (state.nextProcess) {
-    state.nextProcess.kill('SIGKILL');
-    state.nextProcess = null;
+    console.log(`⚠️ [${channelId}] Preload already in progress, skipping`);
+    return false;
   }
+
+  const nextMovie = channelConfig.queue[0];
+  
+  if (!nextMovie || !nextMovie.filePath) {
+    console.error(`❌ [${channelId}] Invalid movie in queue for preload`);
+    return false;
+  }
+
+  console.log(`🔄 [${channelId}] Preloading "${nextMovie.title}" in slot ${state.nextSlot}`);
 
   state.preloadReady = false;
 
   return new Promise((resolve) => {
+    let resolved = false;
+    
+    const resolveOnce = (value) => {
+      if (!resolved) {
+        resolved = true;
+        resolve(value);
+      }
+    };
+
     state.nextProcess = startFFmpeg(
       channelId,
       nextMovie.filePath,
@@ -342,43 +403,52 @@ async function preloadNextMovie(channelId) {
       nextMovie.title,
       state.nextSlot,
       (exitCode) => {
-        console.log(`✅ [${channelId}] Movie "${nextMovie.title}" finished playing (${exitCode})`);
+        console.log(`✅ [${channelId}] Movie "${nextMovie.title}" finished (${exitCode})`);
         state.nextProcess = null;
         state.isPlaying = false;
         
-        // FIXED: Don't call playNextMovie here - it will be called by the queue check
-        // Instead, just trigger the next cycle after a delay
+        // Auto-play next movie after delay
         setTimeout(() => {
           if (channelConfig.queue.length > 0) {
             playNextMovie(channelId);
           } else {
-            // Queue is empty, return to ad
             state.playingAd = false;
             playAd(channelId);
           }
-        }, 1000);
+        }, 2000);
       },
       () => {
         console.log(`🟢 [${channelId}] Movie "${nextMovie.title}" preloaded and ready!`);
         state.preloadReady = true;
-        resolve(true);
+        resolveOnce(true);
       },
       false
     );
 
+    // Timeout check
     setTimeout(() => {
       if (!state.preloadReady) {
-        console.log(`⚠️ [${channelId}] Preload timeout, checking manually...`);
+        console.log(`⏰ [${channelId}] Preload timeout, verifying manually...`);
         const masterPath = path.join(channelOutput, `master_${state.nextSlot}.m3u8`);
-        if (fs.existsSync(masterPath)) {
-          state.preloadReady = true;
-          resolve(true);
-        } else {
-          resolve(false);
+        const streamPath = path.join(channelOutput, `stream_${state.nextSlot}.m3u8`);
+        
+        if (fs.existsSync(masterPath) && fs.existsSync(streamPath)) {
+          try {
+            const content = fs.readFileSync(streamPath, 'utf8');
+            if (content.includes('.ts')) {
+              state.preloadReady = true;
+              resolveOnce(true);
+              return;
+            }
+          } catch (e) {}
         }
+        
+        console.error(`❌ [${channelId}] Preload verification failed`);
+        resolveOnce(false);
       }
-    }, 15000);
+    }, 20000);
   });
+}
 }
 
 // Replace the playNextMovie function with this improved version:
@@ -403,37 +473,51 @@ async function playNextMovie(channelId) {
     return;
   }
 
-  // FIXED: If preload not ready, force preload now and wait
-  if (!state.preloadReady) {
-    console.log(`⏳ [${channelId}] Movie not preloaded yet, forcing preload now...`);
-    
-    if (state.nextProcess) {
-      state.nextProcess.kill('SIGKILL');
-      state.nextProcess = null;
-    }
-    
-    const preloaded = await preloadNextMovie(channelId);
-    
-    if (!preloaded || !state.preloadReady) {
-      console.error(`❌ [${channelId}] Failed to preload movie, retrying in 5s...`);
-      setTimeout(() => playNextMovie(channelId), 5000);
-      return;
-    }
-  }
-
-  // CRITICAL FIX: Get movie reference BEFORE shifting, and mark it as "currently playing"
+  // CRITICAL: Get movie reference BEFORE any operations
   const movie = channelConfig.queue[0];
   
-  if (!movie) {
-    console.error(`❌ [${channelId}] Movie object is undefined!`);
+  if (!movie || !movie.title || !movie.filePath) {
+    console.error(`❌ [${channelId}] Invalid movie object in queue!`);
+    // Remove the bad entry
+    channelConfig.queue.shift();
+    fs.writeFileSync(channelsFile, JSON.stringify(channels, null, 2));
     state.preloadReady = false;
+    // Try next movie
+    setTimeout(() => playNextMovie(channelId), 1000);
     return;
   }
 
-  // IMPORTANT: Store movie info BEFORE removing from queue
+  // Store movie details BEFORE any async operations
   const movieTitle = movie.title;
   const movieFilePath = movie.filePath;
-  
+
+  // If preload not ready, force it now
+  if (!state.preloadReady) {
+    console.log(`⏳ [${channelId}] Movie not preloaded, forcing preload...`);
+    
+    // Make sure we're not already preloading
+    if (state.nextProcess) {
+      console.log(`⚠️ [${channelId}] Preload already in progress, waiting...`);
+      // Wait for current preload to finish
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      
+      // Check if it finished
+      if (!state.preloadReady) {
+        console.error(`❌ [${channelId}] Preload still not ready after wait`);
+        setTimeout(() => playNextMovie(channelId), 5000);
+        return;
+      }
+    } else {
+      const preloaded = await preloadNextMovie(channelId);
+      
+      if (!preloaded || !state.preloadReady) {
+        console.error(`❌ [${channelId}] Failed to preload movie, retrying in 5s...`);
+        setTimeout(() => playNextMovie(channelId), 5000);
+        return;
+      }
+    }
+  }
+
   console.log(`🎬 [${channelId}] Now playing "${movieTitle}"`);
 
   // Swap slots
@@ -441,7 +525,7 @@ async function playNextMovie(channelId) {
   state.activeSlot = state.nextSlot;
   state.nextSlot = oldSlot;
 
-  // Kill ad if it's playing
+  // Kill ad if playing
   if (state.playingAd && state.currentProcess) {
     state.currentProcess.kill('SIGKILL');
   }
@@ -453,16 +537,20 @@ async function playNextMovie(channelId) {
   state.isPlaying = true;
   state.preloadReady = false;
 
-  // Switch stream with verification
-  const switched = switchActiveStream(channelOutput, state.activeSlot);
-  if (!switched) {
-    console.log(`❌ [${channelId}] Failed to switch streams, retrying...`);
-    setTimeout(() => {
-      switchActiveStream(channelOutput, state.activeSlot);
-    }, 1000);
+  // Switch stream with retries
+  let switched = false;
+  for (let i = 0; i < 5; i++) {
+    switched = switchActiveStream(channelOutput, state.activeSlot);
+    if (switched) break;
+    console.log(`⏳ [${channelId}] Switch attempt ${i + 1}/5 failed, retrying...`);
+    await new Promise(resolve => setTimeout(resolve, 1000));
   }
 
-  // Update schedule and metadata
+  if (!switched) {
+    console.error(`❌ [${channelId}] Failed to switch streams after 5 attempts!`);
+  }
+
+  // Update metadata
   const duration = await getVideoDuration(movieFilePath);
   const startTime = new Date();
   const endTime = new Date(startTime.getTime() + duration);
@@ -477,15 +565,17 @@ async function playNextMovie(channelId) {
     endTime: endTime
   });
 
-  // NOW remove from queue after everything is set up
+  // CRITICAL: Only remove from queue AFTER everything is set up successfully
   channelConfig.queue.shift();
   fs.writeFileSync(channelsFile, JSON.stringify(channels, null, 2));
 
-  // Preload next movie if available
+  // Preload next movie if available (wait a bit for current movie to stabilize)
   if (channelConfig.queue.length > 0) {
     setTimeout(async () => {
-      await preloadNextMovie(channelId);
-    }, 10000);
+      if (!state.nextProcess && !state.preloadReady) {
+        await preloadNextMovie(channelId);
+      }
+    }, 15000); // Wait 15 seconds before starting next preload
   }
 }
 
@@ -890,63 +980,103 @@ if (isFirstMovie && state && state.playingAd) {
     { chat_id: chatId, message_id: statusMsg.message_id }
   );
   
-  // STEP 1: Kill the ad process
+  // STEP 1: Stop ad completely
   if (state.currentProcess) {
-    console.log(`🛑 [${channelId}] Stopping ad to start movie`);
+    console.log(`🛑 [${channelId}] Stopping ad for first movie`);
     state.currentProcess.kill('SIGKILL');
     state.currentProcess = null;
-    state.playingAd = false;
-    state.isPlaying = false;
   }
   
-  // STEP 2: Wait for process to fully terminate
-  await new Promise(resolve => setTimeout(resolve, 2000));
-  
-  // STEP 3: Start preloading the movie
+  state.playingAd = false;
+  state.isPlaying = false;
   state.preloadReady = false;
-  console.log(`🔄 [${channelId}] Starting preload for first movie`);
-  const preloaded = await preloadNextMovie(channelId);
   
-  if (!preloaded) {
-    bot.sendMessage(chatId, `⚠️ "${movieName}" added but preload failed. Retrying...`);
-    setTimeout(() => playNextMovie(channelId), 3000);
+  // STEP 2: Wait for ad process to fully terminate
+  await new Promise(resolve => setTimeout(resolve, 3000));
+  
+  // STEP 3: Start fresh preload
+  console.log(`🔄 [${channelId}] Preloading first movie`);
+  
+  const maxAttempts = 3;
+  let preloadSuccess = false;
+  
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    console.log(`⏳ [${channelId}] Preload attempt ${attempt}/${maxAttempts}`);
+    
+    const preloaded = await preloadNextMovie(channelId);
+    
+    if (preloaded && state.preloadReady) {
+      preloadSuccess = true;
+      break;
+    }
+    
+    console.log(`❌ [${channelId}] Preload attempt ${attempt} failed`);
+    
+    if (attempt < maxAttempts) {
+      // Kill any stuck process before retry
+      if (state.nextProcess) {
+        state.nextProcess.kill('SIGKILL');
+        state.nextProcess = null;
+      }
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+  }
+  
+  if (!preloadSuccess) {
+    bot.sendMessage(chatId, `⚠️ "${movieName}" added but failed to start. Will retry automatically.`);
+    // It will retry via the normal flow
     return;
   }
   
-  // STEP 4: Wait additional time for HLS segments to be generated
+  // STEP 4: Wait for HLS segments
   console.log(`⏳ [${channelId}] Waiting for HLS segments...`);
   await new Promise(resolve => setTimeout(resolve, 5000));
   
-  // STEP 5: Verify segments exist before switching
+  // STEP 5: Verify segments with detailed check
   const channelOutput = getChannelOutput(channelId);
-  const masterPath = path.join(channelOutput, `master_${state.nextSlot}.m3u8`);
-  const streamPath = path.join(channelOutput, `stream_${state.nextSlot}.m3u8`);
-  
   let segmentsReady = false;
+  
   for (let i = 0; i < 10; i++) {
+    const masterPath = path.join(channelOutput, `master_${state.nextSlot}.m3u8`);
+    const streamPath = path.join(channelOutput, `stream_${state.nextSlot}.m3u8`);
+    
     if (fs.existsSync(masterPath) && fs.existsSync(streamPath)) {
-      // Also check for at least one segment file
-      const files = fs.readdirSync(channelOutput);
-      const hasSegments = files.some(f => f.startsWith(`segment_${state.nextSlot}_`) && f.endsWith('.ts'));
-      
-      if (hasSegments) {
-        segmentsReady = true;
-        console.log(`✅ [${channelId}] Segments verified and ready`);
-        break;
+      try {
+        const streamContent = fs.readFileSync(streamPath, 'utf8');
+        const hasSegmentRefs = streamContent.includes('.ts');
+        
+        if (hasSegmentRefs) {
+          // Check for at least one actual segment file
+          const files = fs.readdirSync(channelOutput);
+          const segmentFiles = files.filter(f => 
+            f.startsWith(`segment_${state.nextSlot}_`) && 
+            f.endsWith('.ts') &&
+            fs.statSync(path.join(channelOutput, f)).size > 0
+          );
+          
+          if (segmentFiles.length > 0) {
+            segmentsReady = true;
+            console.log(`✅ [${channelId}] Found ${segmentFiles.length} playable segments`);
+            break;
+          }
+        }
+      } catch (e) {
+        console.error(`⚠️ [${channelId}] Error checking segments:`, e.message);
       }
     }
+    
     console.log(`⏳ [${channelId}] Waiting for segments... (${i+1}/10)`);
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise(resolve => setTimeout(resolve, 1500));
   }
   
   if (!segmentsReady) {
-    bot.sendMessage(chatId, `⚠️ "${movieName}" added but stream not ready. Will retry automatically.`);
+    bot.sendMessage(chatId, `⚠️ "${movieName}" added but stream not ready yet. Will retry.`);
     setTimeout(() => playNextMovie(channelId), 5000);
     return;
   }
   
-  // STEP 6: Now play the movie
-  state.preloadReady = true;
+  // STEP 6: Now play
+  console.log(`✅ [${channelId}] Everything ready, starting playback`);
   playNextMovie(channelId);
   
   bot.sendMessage(chatId, 
