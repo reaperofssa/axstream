@@ -192,13 +192,27 @@ function switchActiveStream(channelOutput, toSlot) {
       return false;
     }
 
-    // Remove old symlinks
-    if (fs.existsSync(masterLink)) fs.unlinkSync(masterLink);
-    if (fs.existsSync(streamLink)) fs.unlinkSync(streamLink);
+    // Remove old symlinks/files if they exist
+    try {
+      if (fs.existsSync(masterLink)) {
+        const stats = fs.lstatSync(masterLink);
+        if (stats.isSymbolicLink() || stats.isFile()) {
+          fs.unlinkSync(masterLink);
+        }
+      }
+      if (fs.existsSync(streamLink)) {
+        const stats = fs.lstatSync(streamLink);
+        if (stats.isSymbolicLink() || stats.isFile()) {
+          fs.unlinkSync(streamLink);
+        }
+      }
+    } catch (unlinkError) {
+      console.error(`Error removing old links:`, unlinkError);
+    }
 
-    // Create new symlinks
-    fs.symlinkSync(`master_${toSlot}.m3u8`, masterLink);
-    fs.symlinkSync(`stream_${toSlot}.m3u8`, streamLink);
+    // CRITICAL: Use file copy instead of symlinks for compatibility
+    fs.copyFileSync(targetMaster, masterLink);
+    fs.copyFileSync(targetStream, streamLink);
 
     console.log(`🔄 Switched to slot ${toSlot}`);
     return true;
@@ -544,7 +558,7 @@ bot.on('message', async (msg) => {
       
       bot.sendMessage(msg.chat.id, 
         `✅ Channel "${channelName}" created!\n\n` +
-        `Watch live: http://your-server:${PORT}/watch/${channelId}\n\n` +
+        `Watch live: https://axstream.onrender.com/watch/${channelId}\n\n` +
         `Use /play command to add movies!`
       );
     }
@@ -873,7 +887,7 @@ if (isFirstMovie && state && state.playingAd) {
       `🎬 Now playing "${movieName}"!\n\n` +
       `Format: ${fileExtension.toUpperCase()}\n` +
       `Size: ${(stats.size / (1024 * 1024)).toFixed(1)}MB\n\n` +
-      `Watch: http://your-server:${PORT}/watch/${channelId}`
+      `Watch: https://axstream.onrender.com/watch/${channelId}`
     );
   } else {
     bot.sendMessage(chatId, 
@@ -892,7 +906,7 @@ if (isFirstMovie && state && state.playingAd) {
         `Position: ${channels[channelId].queue.length}\n` +
         `Format: ${fileExtension.toUpperCase()}\n` +
         `Size: ${(stats.size / (1024 * 1024)).toFixed(1)}MB\n\n` +
-        `Watch: http://your-server:${PORT}/watch/${channelId}`,
+        `Watch: https://axstream.onrender.com/watch/${channelId}`,
         { chat_id: chatId, message_id: statusMsg.message_id }
       );
     }
@@ -962,11 +976,10 @@ bot.onText(/\/channels/, (msg) => {
     channelText += `${liveIndicator} *${config.name}*\n`;
     channelText += `   Now: ${status}\n`;
     channelText += `   Queue: ${queueCount} movies\n`;
-    channelText += `   Watch: http://your-server:${PORT}/watch/${id}\n\n`;
+    channelText += `   Watch: https://axstream.onrender.com/watch/${id}\n\n`;
   });
 
-  bot.sendMessage(chatId, channelText, { parse_mode: 'Markdown' });
-});
+  bot.sendMessage(chatId, channelText);
 
 bot.onText(/\/status/, async (msg) => {
   const chatId = msg.chat.id;
@@ -1002,7 +1015,7 @@ bot.onText(/\/status/, async (msg) => {
   }
 
   statusText += `*Watch Live:*\n`;
-  statusText += `http://your-server:${PORT}/watch/${channelId}\n\n`;
+  statusText += `https://axstream.onrender.com/watch/${channelId}\n\n`;
   statusText += `_Real-time schedule updates • Seamless transitions_`;
 
   bot.sendMessage(chatId, statusText, { parse_mode: 'Markdown' });
