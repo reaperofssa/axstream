@@ -121,14 +121,18 @@ function startFFmpeg(channelId, inputPath, outputDir, movieTitle, slotId, onExit
   '-stream_loop', isAd ? '-1' : '0',
   '-re', '-i', inputPath,
   '-vf', `drawtext=text='${watermarkText}':fontcolor=white:fontsize=24:x=w-tw-20:y=20${!isAd ? `,drawtext=text='${movieTitle}':fontcolor=white:fontsize=20:x=w-tw-20:y=h-th-20` : ''}`,
-  '-c:v', 'libx264', '-preset', 'ultrafast', // Changed from 'veryfast'
-  '-tune', 'zerolatency',
-  '-c:a', 'aac', '-b:a', '128k',
-  '-g', '50', '-sc_threshold', '0',
+  '-c:v', 'libx264', 
+  '-preset', 'ultrafast',  // Fastest encoding
+  '-tune', 'zerolatency',  // Minimize latency
+  '-crf', '28',  // Lower quality = faster encoding
+  '-maxrate', '2M', '-bufsize', '4M',  // Limit bitrate
+  '-c:a', 'aac', '-b:a', '96k',  // Lower audio bitrate
+  '-g', '30',  // Smaller GOP = faster start
+  '-sc_threshold', '0',
   '-f', 'hls',
-  '-hls_time', '2', // Changed from 4 - smaller segments generate faster
-  '-hls_list_size', '10', // Changed from 6 - keep more segments
-  '-hls_flags', 'delete_segments+program_date_time+independent_segments',
+  '-hls_time', '2',  // 2-second segments
+  '-hls_list_size', '6',  // Keep only 6 segments
+  '-hls_flags', 'delete_segments+independent_segments',
   '-hls_segment_type', 'mpegts',
   '-hls_segment_filename', path.join(outputDir, `segment_${slotId}_%03d.ts`),
   '-master_pl_name', `master_${slotId}.m3u8`,
@@ -141,105 +145,99 @@ function startFFmpeg(channelId, inputPath, outputDir, movieTitle, slotId, onExit
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
- let isReady = false;
-let readyCheckTimeout = null;
-let segmentCheckInterval = null;
-let segmentsFound = 0;
-const REQUIRED_SEGMENTS = 2; // Need at least 2 segments to be safe
+  let isReady = false;
+  let readyCheckTimeout = null;
+  let segmentCheckInterval = null;
+  const REQUIRED_SEGMENTS = 2;
 
-// More reliable ready detection - check for actual playable segments
-const checkSegmentsReady = () => {
-  try {
-    const masterPath = path.join(outputDir, `master_${slotId}.m3u8`);
-    const streamPath = path.join(outputDir, `stream_${slotId}.m3u8`);
-    
-    if (!fs.existsSync(masterPath) || !fs.existsSync(streamPath)) {
-      return false;
-    }
-    
-    // Verify files have content
-    const masterStats = fs.statSync(masterPath);
-    const streamStats = fs.statSync(streamPath);
-    if (masterStats.size === 0 || streamStats.size === 0) {
-      return false;
-    }
-    
-    // Read the stream playlist to check for segments
-    const streamContent = fs.readFileSync(streamPath, 'utf8');
-    const segmentMatches = streamContent.match(/segment_.*?\.ts/g);
-    
-    if (!segmentMatches || segmentMatches.length < REQUIRED_SEGMENTS) {
-      return false;
-    }
-    
-    // Verify actual segment files exist with data
-    let validSegments = 0;
-    for (const segName of segmentMatches) {
-      const segPath = path.join(outputDir, segName);
-      if (fs.existsSync(segPath)) {
-        const stats = fs.statSync(segPath);
-        if (stats.size > 10000) { // At least 10KB
-          validSegments++;
+  // FAST segment detection - check every 500ms
+  const checkSegmentsReady = () => {
+    try {
+      const masterPath = path.join(outputDir, `master_${slotId}.m3u8`);
+      const streamPath = path.join(outputDir, `stream_${slotId}.m3u8`);
+      
+      if (!fs.existsSync(masterPath) || !fs.existsSync(streamPath)) {
+        return false;
+      }
+      
+      const masterStats = fs.statSync(masterPath);
+      const streamStats = fs.statSync(streamPath);
+      if (masterStats.size === 0 || streamStats.size === 0) {
+        return false;
+      }
+      
+      const streamContent = fs.readFileSync(streamPath, 'utf8');
+      const segmentMatches = streamContent.match(/segment_.*?\.ts/g);
+      
+      if (!segmentMatches || segmentMatches.length < REQUIRED_SEGMENTS) {
+        return false;
+      }
+      
+      let validSegments = 0;
+      for (const segName of segmentMatches.slice(0, REQUIRED_SEGMENTS)) {
+        const segPath = path.join(outputDir, segName);
+        if (fs.existsSync(segPath)) {
+          const stats = fs.statSync(segPath);
+          if (stats.size > 5000) {  // At least 5KB
+            validSegments++;
+          }
         }
       }
+      
+      return validSegments >= REQUIRED_SEGMENTS;
+    } catch (e) {
+      return false;
     }
-    
-    return validSegments >= REQUIRED_SEGMENTS;
-  } catch (e) {
-    return false;
-  }
-};
+  };
 
-// Check for segments every 800ms
-// Change from 800ms to 1500ms for more reliable segment detection
-segmentCheckInterval = setInterval(() => {
-  if (!isReady && checkSegmentsReady()) {
-    isReady = true;
-    clearInterval(segmentCheckInterval);
-    clearTimeout(readyCheckTimeout);
-    console.log(`✅ [${channelId}-${slotId}] Stream ready with ${REQUIRED_SEGMENTS}+ playable segments!`);
-    if (onReady) onReady();
-  }
-}, 1500); // Changed from 800
-
-// Increase timeout from 30s to 45s
-readyCheckTimeout = setTimeout(() => {
-  clearInterval(segmentCheckInterval);
-  if (!isReady) {
-    console.log(`❌ [${channelId}-${slotId}] Ready timeout - no playable segments found`);
-    // Force check one last time
-    if (checkSegmentsReady()) {
+  // Check every 500ms (faster detection)
+  segmentCheckInterval = setInterval(() => {
+    if (!isReady && checkSegmentsReady()) {
       isReady = true;
+      clearInterval(segmentCheckInterval);
+      clearTimeout(readyCheckTimeout);
+      console.log(`✅ [${channelId}-${slotId}] Stream ready with ${REQUIRED_SEGMENTS}+ playable segments!`);
       if (onReady) onReady();
     }
-  }
-}, 45000); // Changed from 30000
+  }, 500);  // Changed from 1500ms to 500ms
 
-proc.stderr.on('data', data => {
-  const output = data.toString();
-  
-  // Log errors
-  if (output.toLowerCase().includes('error') || output.toLowerCase().includes('invalid')) {
-    console.error(`❌ [${channelId}-${slotId}] FFmpeg error:`, output.substring(0, 200));
-  }
-
-  // Progress tracking
-  if (output.includes('frame=')) {
-    const frameMatch = output.match(/frame=\s*(\d+)/);
-    if (frameMatch && parseInt(frameMatch[1]) % 300 === 0) {
-      console.log(`[${channelId}-${slotId}] Frame ${frameMatch[1]}`);
+  // 20 second timeout (should be enough with optimized settings)
+  readyCheckTimeout = setTimeout(() => {
+    clearInterval(segmentCheckInterval);
+    if (!isReady) {
+      console.log(`❌ [${channelId}-${slotId}] Ready timeout - no playable segments found`);
+      if (checkSegmentsReady()) {
+        isReady = true;
+        if (onReady) onReady();
+      }
     }
-  }
-});
+  }, 20000);  // Changed from 45000ms to 20000ms
+
+  proc.stderr.on('data', data => {
+    const output = data.toString();
+    
+    if (output.toLowerCase().includes('error') || output.toLowerCase().includes('invalid')) {
+      console.error(`❌ [${channelId}-${slotId}] FFmpeg error:`, output.substring(0, 200));
+    }
+
+    if (output.includes('frame=')) {
+      const frameMatch = output.match(/frame=\s*(\d+)/);
+      if (frameMatch && parseInt(frameMatch[1]) % 300 === 0) {
+        console.log(`[${channelId}-${slotId}] Frame ${frameMatch[1]}`);
+      }
+    }
+  });
 
   proc.on('exit', (code) => {
     clearTimeout(readyCheckTimeout);
+    clearInterval(segmentCheckInterval);
     console.log(`🔴 [${channelId}] FFmpeg slot ${slotId} exited with code ${code}`);
     if (onExit) onExit(code);
   });
 
   proc.on('error', (error) => {
     clearTimeout(readyCheckTimeout);
+    clearInterval(segmentCheckInterval);
     console.error(`❌ [${channelId}-${slotId}] FFmpeg process error:`, error);
     if (onExit) onExit(-1);
   });
@@ -466,14 +464,8 @@ async function preloadNextMovie(channelId) {
         state.isPlaying = false;
         state.isPreloading = false;
         
-        setTimeout(() => {
-          if (channelConfig.queue.length > 0) {
-            playNextMovie(channelId);
-          } else {
-            state.playingAd = false;
-            playAd(channelId);
-          }
-        }, 2000);
+        // CRITICAL FIX: Don't check queue here - it will be shifted later
+        setTimeout(() => playNextMovie(channelId), 2000);
       },
       () => {
         console.log(`🟢 [${channelId}] Movie "${nextMovie.title}" preloaded and ready!`);
@@ -490,7 +482,7 @@ async function preloadNextMovie(channelId) {
       return;
     }
 
-    // ✅ IMPROVED: Wait longer and verify more segments
+    // Reduced timeout to 25 seconds
     setTimeout(() => {
       if (!state.preloadReady) {
         console.log(`⏰ [${channelId}] Preload timeout, verifying manually...`);
@@ -500,23 +492,18 @@ async function preloadNextMovie(channelId) {
         if (fs.existsSync(masterPath) && fs.existsSync(streamPath)) {
           try {
             const content = fs.readFileSync(streamPath, 'utf8');
-            // ✅ FIX: Correct regex pattern
-            const segments = content.match(new RegExp(`segment_${state.nextSlot}_\\d{3}\\.ts`, 'g'));
-            
-            // ✅ IMPROVED: Require at least 5 segments (was 2)
-            if (segments && segments.length >= 5) {
+            const segments = content.match(/segment_.*?\.ts/g);
+            if (segments && segments.length >= 2) {
               let validCount = 0;
-              // Check first 5 segments
-              for (const seg of segments.slice(0, 5)) {
+              for (const seg of segments.slice(0, 2)) {
                 const segPath = path.join(channelOutput, seg);
-                if (fs.existsSync(segPath) && fs.statSync(segPath).size > 10000) {
+                if (fs.existsSync(segPath) && fs.statSync(segPath).size > 5000) {
                   validCount++;
                 }
               }
               
-              // ✅ IMPROVED: Need at least 4 valid segments (was 2)
-              if (validCount >= 4) {
-                console.log(`✅ [${channelId}] Manual verification passed (${validCount} segments)`);
+              if (validCount >= 2) {
+                console.log(`✅ [${channelId}] Manual verification passed`);
                 state.preloadReady = true;
                 resolveOnce(true);
                 return;
@@ -530,15 +517,18 @@ async function preloadNextMovie(channelId) {
         console.error(`❌ [${channelId}] Preload verification failed - no valid segments`);
         resolveOnce(false);
       }
-    }, 60000); // ✅ IMPROVED: 60 second timeout (was 50)
+    }, 25000);  // Changed from 50000ms to 25000ms
   });
 }
+
+// ==================== CRITICAL FIX: playNextMovie ====================
 
 async function playNextMovie(channelId) {
   const state = channelStates[channelId];
   const channelConfig = channels[channelId];
   const channelOutput = getChannelOutput(channelId);
 
+  // FIRST: Check if queue is empty
   if (!channelConfig.queue || channelConfig.queue.length === 0) {
     console.log(`📺 [${channelId}] Queue empty, returning to ad loop`);
     state.playingAd = false;
@@ -554,6 +544,7 @@ async function playNextMovie(channelId) {
     return;
   }
 
+  // Get movie reference BEFORE any operations
   const movie = channelConfig.queue[0];
   
   if (!movie || !movie.title || !movie.filePath) {
@@ -568,12 +559,13 @@ async function playNextMovie(channelId) {
   const movieTitle = movie.title;
   const movieFilePath = movie.filePath;
 
+  // If preload not ready, force it now
   if (!state.preloadReady) {
     console.log(`⏳ [${channelId}] Movie not preloaded, forcing preload...`);
     
     if (state.nextProcess) {
       console.log(`⚠️ [${channelId}] Preload already in progress, waiting...`);
-      await new Promise(resolve => setTimeout(resolve, 5000)); // ✅ Wait 5s
+      await new Promise(resolve => setTimeout(resolve, 3000));
       
       if (!state.preloadReady) {
         console.error(`❌ [${channelId}] Preload still not ready after wait`);
@@ -584,80 +576,46 @@ async function playNextMovie(channelId) {
       const preloaded = await preloadNextMovie(channelId);
       
       if (!preloaded || !state.preloadReady) {
-        console.error(`❌ [${channelId}] Failed to preload movie, retrying in 10s...`);
-        setTimeout(() => playNextMovie(channelId), 10000);
+        console.error(`❌ [${channelId}] Failed to preload movie, retrying in 5s...`);
+        setTimeout(() => playNextMovie(channelId), 5000);
         return;
       }
     }
   }
 
-  // ✅ IMPROVED: Verify segments one more time before switching
-  console.log(`🔍 [${channelId}] Final verification before playing "${movieTitle}"`);
-  const streamPath = path.join(channelOutput, `stream_${state.nextSlot}.m3u8`);
-  
-  try {
-    const content = fs.readFileSync(streamPath, 'utf8');
-    const segments = content.match(new RegExp(`segment_${state.nextSlot}_\\d{3}\\.ts`, 'g'));
-    
-    if (!segments || segments.length < 4) {
-      console.error(`❌ [${channelId}] Not enough segments for playback (${segments?.length || 0})`);
-      state.preloadReady = false;
-      setTimeout(() => playNextMovie(channelId), 10000);
-      return;
-    }
-    
-    let validCount = 0;
-    for (const seg of segments.slice(0, 4)) {
-      const segPath = path.join(channelOutput, seg);
-      if (fs.existsSync(segPath) && fs.statSync(segPath).size > 10000) {
-        validCount++;
-      }
-    }
-    
-    if (validCount < 3) {
-      console.error(`❌ [${channelId}] Not enough valid segments (${validCount}/4)`);
-      state.preloadReady = false;
-      setTimeout(() => playNextMovie(channelId), 10000);
-      return;
-    }
-    
-    console.log(`✅ [${channelId}] Verified ${validCount} segments, ready to play`);
-  } catch (e) {
-    console.error(`❌ [${channelId}] Error verifying segments:`, e.message);
-    setTimeout(() => playNextMovie(channelId), 10000);
-    return;
-  }
-
   console.log(`🎬 [${channelId}] Now playing "${movieTitle}"`);
 
+  // Swap slots
   const oldSlot = state.activeSlot;
   state.activeSlot = state.nextSlot;
   state.nextSlot = oldSlot;
 
+  // Kill ad if playing
   if (state.playingAd && state.currentProcess) {
     state.currentProcess.kill('SIGKILL');
   }
 
+  // Move next process to current
   state.currentProcess = state.nextProcess;
   state.nextProcess = null;
   state.playingAd = false;
   state.isPlaying = true;
   state.preloadReady = false;
 
-  // ✅ IMPROVED: More retries with longer delays
+  // Switch stream with retries
   let switched = false;
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 3; i++) {
     switched = switchActiveStream(channelOutput, state.activeSlot);
     if (switched) break;
-    console.log(`⏳ [${channelId}] Switch attempt ${i + 1}/10 failed, retrying...`);
-    await new Promise(resolve => setTimeout(resolve, 2000)); // ✅ 2s between retries
+    console.log(`⏳ [${channelId}] Switch attempt ${i + 1}/3 failed, retrying...`);
+    await new Promise(resolve => setTimeout(resolve, 500));
   }
 
   if (!switched) {
-    console.error(`❌ [${channelId}] Failed to switch streams after 10 attempts!`);
-    // Don't give up - try to continue anyway
+    console.error(`❌ [${channelId}] Failed to switch streams after 3 attempts!`);
   }
 
+  // Update metadata
   const duration = await getVideoDuration(movieFilePath);
   const startTime = new Date();
   const endTime = new Date(startTime.getTime() + duration);
@@ -672,17 +630,17 @@ async function playNextMovie(channelId) {
     endTime: endTime
   });
 
+  // CRITICAL: Remove from queue AFTER everything is set up
   channelConfig.queue.shift();
   fs.writeFileSync(channelsFile, JSON.stringify(channels, null, 2));
 
-  // ✅ IMPROVED: Wait longer before preloading next movie
+  // Preload next movie if available
   if (channelConfig.queue.length > 0) {
     setTimeout(async () => {
       if (!state.nextProcess && !state.preloadReady) {
-        console.log(`🔄 [${channelId}] Starting next movie preload`);
         await preloadNextMovie(channelId);
       }
-    }, 30000); // ✅ Wait 30 seconds (was 15)
+    }, 10000);  // Reduced from 15000ms to 10000ms
   }
 }
 async function initializeChannel(channelId) {
